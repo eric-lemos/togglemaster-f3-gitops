@@ -50,9 +50,23 @@ jobs:
 
             - name: Add Helm repositories
               run: |
+                  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
                   helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
                   helm repo add argo https://argoproj.github.io/argo-helm
                   helm repo update
+
+            - name: Check and install Ingress NGINX
+              run: |
+                  if helm status ingress-nginx --namespace ingress-nginx >/dev/null 2>&1; then
+                    echo "Ingress NGINX is already installed."
+                  else
+                    helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+                      --namespace ingress-nginx \
+                      --create-namespace \
+                      --set controller.service.type=LoadBalancer \
+                      --wait \
+                      --timeout 10m
+                  fi
 
             - name: Check and install Metrics Server
               run: |

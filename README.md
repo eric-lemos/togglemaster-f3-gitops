@@ -36,6 +36,7 @@ O workflow `.github/workflows/gitops.yml` pode ser executado em **Actions > K8s 
 
 - `K8s Apply`: aplica a raiz Kustomize (`kubectl apply -k .`).
 - `Run Postgres Schema Job`: remove e recria `postgres-schema-init`, aguarda sua conclusão e exibe os logs.
+- O job `deploy` também verifica e instala o Ingress NGINX como Service `LoadBalancer` antes de aplicar os manifests.
 - `Install Metrics Server`: instala ou atualiza o chart do Metrics Server via Helm.
 - `Install ArgoCD`: instala ou atualiza o chart do Argo CD, cria o Service `LoadBalancer` e registra a Application GitOps.
 
