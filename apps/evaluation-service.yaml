@@ -25,7 +25,11 @@ spec:
             - name: PORT
               value: "8004"
             - name: SERVICE_API_KEY
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: togglemaster-runtime
+                  key: SERVICE_API_KEY
+                  optional: true
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
