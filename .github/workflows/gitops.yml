@@ -1,10 +1,10 @@
-name: GitOps Deploy
+name: K8s Utils
 
 on:
     workflow_dispatch:
         inputs:
             k8s_apply:
-                description: "K8s Apply"
+                description: "Kubectl Apply"
                 required: true
                 default: false
                 type: boolean
