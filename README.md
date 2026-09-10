@@ -15,7 +15,7 @@ Cada pipeline de aplicação publica a imagem no ECR e atualiza o campo `image` 
 O repositório de apps precisa destas GitHub Variables:
 
 ```text
-GITOPS_REPOSITORY=https://github.com/eric-lemos/togglemaster-f3-gitops
+GITOPS_REPOSITORY=eric-lemos/togglemaster-f3-gitops
 GITOPS_BRANCH=main
 GITOPS_AUTH_MANIFEST_PATH=apps/auth-service.yaml
 GITOPS_EVALUATION_MANIFEST_PATH=apps/evaluation-service.yaml
@@ -52,6 +52,27 @@ EKS_CLUSTER_NAME=togglemaster-eks-cluster
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 AWS_SESSION_TOKEN
+AUTH_DATABASE_URL
+FLAG_DATABASE_URL
+TARGETING_DATABASE_URL
+MASTER_KEY
+REDIS_URL
+AWS_SQS_URL
+AWS_DYNAMODB_TABLE
 ```
 
-As credenciais devem estar ativas no momento da execução. Antes de usar `K8s Apply`, substitua os placeholders de `base/secrets.yaml` por valores Base64 válidos ou adicione uma etapa de renderização de secrets. O Kubernetes rejeita valores literais como `${AUTH_DATABASE_URL_BASE64_ENCODED}`.
+As credenciais AWS devem estar ativas no momento da execução. As demais Secrets são lidas pelo workflow e transformadas em um Secret Kubernetes chamado `togglemaster-secrets`; não é necessário codificá-las manualmente em Base64.
+
+Exemplos de valores:
+
+```text
+AUTH_DATABASE_URL=postgresql://auth_admin:REPLACE_WITH_PASSWORD@togglemaster-auth.example.amazonaws.com:5432/postgres?sslmode=require
+FLAG_DATABASE_URL=postgresql://flags_admin:REPLACE_WITH_PASSWORD@togglemaster-flags.example.amazonaws.com:5432/postgres?sslmode=require
+TARGETING_DATABASE_URL=postgresql://targeting_admin:REPLACE_WITH_PASSWORD@togglemaster-targeting.example.amazonaws.com:5432/postgres?sslmode=require
+MASTER_KEY=REPLACE_WITH_A_LONG_RANDOM_KEY
+REDIS_URL=redis://:REPLACE_WITH_REDIS_TOKEN@togglemaster-redis.example.cache.amazonaws.com:6379/0
+AWS_SQS_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/togglemaster-analytics-events
+AWS_DYNAMODB_TABLE=ToggleMasterAnalytics
+```
+
+Se o Redis exigir TLS, use `rediss://` no lugar de `redis://`. Caracteres especiais em usuários ou senhas devem ser URL-encoded, por exemplo `@` como `%40` e `#` como `%23`. Nunca versione esses valores no repositório.

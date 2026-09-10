@@ -1,66 +1,91 @@
 name: K8s Utils
 
 on:
-    workflow_dispatch:
-        inputs:
-            k8s_apply:
-                description: "Kubectl Apply"
-                required: true
-                default: false
-                type: boolean
-            run_postgres_schema_job:
-                description: "Run Postgres Schema Job"
-                required: true
-                default: false
-                type: boolean
+  workflow_dispatch:
+    inputs:
+      k8s_apply:
+        description: "Kubectl Apply"
+        required: true
+        default: false
+        type: boolean
+      run_postgres_schema_job:
+        description: "Run Postgres Schema Job"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-    contents: read
+  contents: read
 
 concurrency:
-    group: gitops-${{ github.ref }}
-    cancel-in-progress: false
+  group: gitops-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
-    AWS_REGION: ${{ vars.AWS_REGION }}
-    EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
 jobs:
-    deploy:
-        name: Deploy to Kubernetes
-        runs-on: ubuntu-latest
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    if: inputs.k8s_apply || inputs.run_postgres_schema_job
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+      - name: Prepare namespace and runtime secrets
         if: inputs.k8s_apply || inputs.run_postgres_schema_job
-        steps:
-            - name: Checkout GitOps repository
-              uses: actions/checkout@v5
+        env:
+          AUTH_DATABASE_URL: ${{ secrets.AUTH_DATABASE_URL }}
+          FLAG_DATABASE_URL: ${{ secrets.FLAG_DATABASE_URL }}
+          TARGETING_DATABASE_URL: ${{ secrets.TARGETING_DATABASE_URL }}
+          MASTER_KEY: ${{ secrets.MASTER_KEY }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          AWS_SQS_URL: ${{ secrets.AWS_SQS_URL }}
+          AWS_DYNAMODB_TABLE: ${{ secrets.AWS_DYNAMODB_TABLE }}
+        run: |
+          kubectl apply -f base/namespace.yaml
+          kubectl create secret generic togglemaster-secrets \
+            --namespace togglemaster \
+            --from-literal=AUTH_DATABASE_URL="$AUTH_DATABASE_URL" \
+            --from-literal=FLAG_DATABASE_URL="$FLAG_DATABASE_URL" \
+            --from-literal=TARGETING_DATABASE_URL="$TARGETING_DATABASE_URL" \
+            --from-literal=MASTER_KEY="$MASTER_KEY" \
+            --from-literal=REDIS_URL="$REDIS_URL" \
+            --from-literal=AWS_REGION="$AWS_REGION" \
+            --from-literal=AWS_SQS_URL="$AWS_SQS_URL" \
+            --from-literal=AWS_DYNAMODB_TABLE="$AWS_DYNAMODB_TABLE" \
+            --dry-run=client \
+            --output=yaml | kubectl apply -f -
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v6
-              with:
-                  aws-region: ${{ env.AWS_REGION }}
-                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Apply Kubernetes manifests
+        if: inputs.k8s_apply
+        run: kubectl apply -k .
 
-            - name: Configure kubectl
-              run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-
-            - name: Apply Kubernetes manifests
-              if: inputs.k8s_apply
-              run: kubectl apply -k .
-
-            - name: Run Postgres Schema Job
-              if: inputs.run_postgres_schema_job
-              run: |
-                  kubectl delete job postgres-schema-init \
-                    --namespace togglemaster \
-                    --ignore-not-found
-                  kubectl apply -f jobs/postgres-job.yaml
-                  kubectl wait \
-                    --namespace togglemaster \
-                    --for=condition=complete \
-                    --timeout=10m \
-                    job/postgres-schema-init
-                  kubectl logs \
-                    --namespace togglemaster \
-                    job/postgres-schema-init
+      - name: Run Postgres Schema Job
+        if: inputs.run_postgres_schema_job
+        run: |
+          kubectl delete job postgres-schema-init \
+            --namespace togglemaster \
+            --ignore-not-found
+          kubectl apply -f jobs/postgres-job.yaml
+          kubectl wait \
+            --namespace togglemaster \
+            --for=condition=complete \
+            --timeout=10m \
+            job/postgres-schema-init
+          kubectl logs \
+            --namespace togglemaster \
+            job/postgres-schema-init
