@@ -53,9 +53,25 @@ jobs:
           TARGETING_DATABASE_URL: ${{ secrets.TARGETING_DATABASE_URL }}
           MASTER_KEY: ${{ secrets.MASTER_KEY }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
-          AWS_SQS_URL: ${{ secrets.AWS_SQS_URL }}
-          AWS_DYNAMODB_TABLE: ${{ secrets.AWS_DYNAMODB_TABLE }}
+          AWS_SQS_URL: ${{ vars.AWS_SQS_URL }}
+          AWS_DYNAMODB_TABLE: ${{ vars.AWS_DYNAMODB_TABLE }}
         run: |
+          required_values=(
+            AUTH_DATABASE_URL
+            FLAG_DATABASE_URL
+            TARGETING_DATABASE_URL
+            MASTER_KEY
+            REDIS_URL
+            AWS_SQS_URL
+            AWS_DYNAMODB_TABLE
+          )
+          for variable_name in "${required_values[@]}"; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "Required configuration is missing: $variable_name" >&2
+              exit 1
+            fi
+          done
+
           kubectl apply -f base/namespace.yaml
           kubectl create secret generic togglemaster-secrets \
             --namespace togglemaster \

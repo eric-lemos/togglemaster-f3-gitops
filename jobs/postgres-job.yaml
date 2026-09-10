@@ -129,9 +129,9 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              set -e
-              NC="\e[0m"
-              BLUE="\e[0;36m"
+              set -eu
+              BLUE="\033[0;36m"
+              NC="\033[0m"
 
               echo -e "${BLUE}Resetando schema do auth-service...${NC}"
               psql "$AUTH_DATABASE_URL" -v ON_ERROR_STOP=1 -f /sql/auth-reset.sql

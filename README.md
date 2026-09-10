@@ -44,6 +44,8 @@ Configure no repositório GitOps:
 ```text
 AWS_REGION=us-east-1
 EKS_CLUSTER_NAME=togglemaster-eks-cluster
+AWS_SQS_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/togglemaster-analytics-events
+AWS_DYNAMODB_TABLE=ToggleMasterAnalytics
 ```
 
 ### Secrets
@@ -57,8 +59,6 @@ FLAG_DATABASE_URL
 TARGETING_DATABASE_URL
 MASTER_KEY
 REDIS_URL
-AWS_SQS_URL
-AWS_DYNAMODB_TABLE
 ```
 
 As credenciais AWS devem estar ativas no momento da execução. As demais Secrets são lidas pelo workflow e transformadas em um Secret Kubernetes chamado `togglemaster-secrets`; não é necessário codificá-las manualmente em Base64.
@@ -71,8 +71,6 @@ FLAG_DATABASE_URL=postgresql://flags_admin:REPLACE_WITH_PASSWORD@togglemaster-fl
 TARGETING_DATABASE_URL=postgresql://targeting_admin:REPLACE_WITH_PASSWORD@togglemaster-targeting.example.amazonaws.com:5432/postgres?sslmode=require
 MASTER_KEY=REPLACE_WITH_A_LONG_RANDOM_KEY
 REDIS_URL=redis://:REPLACE_WITH_REDIS_TOKEN@togglemaster-redis.example.cache.amazonaws.com:6379/0
-AWS_SQS_URL=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/togglemaster-analytics-events
-AWS_DYNAMODB_TABLE=ToggleMasterAnalytics
 ```
 
 Se o Redis exigir TLS, use `rediss://` no lugar de `redis://`. Caracteres especiais em usuários ou senhas devem ser URL-encoded, por exemplo `@` como `%40` e `#` como `%23`. Nunca versione esses valores no repositório.
