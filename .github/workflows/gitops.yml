@@ -1,107 +1,199 @@
-name: K8s Utils
+name: GitOps
 
 on:
-  workflow_dispatch:
-    inputs:
-      k8s_apply:
-        description: "Kubectl Apply"
-        required: true
-        default: false
-        type: boolean
-      run_postgres_schema_job:
-        description: "Run Postgres Schema Job"
-        required: true
-        default: false
-        type: boolean
+    workflow_dispatch:
+        inputs:
+            kubernetes_apply:
+                description: "Kubernetes Apply"
+                required: true
+                default: false
+                type: boolean
+            run_postgres_schema_job:
+                description: "Run Postegres Schema Job"
+                required: true
+                default: false
+                type: boolean
 
 permissions:
-  contents: read
+    contents: read
 
 concurrency:
-  group: gitops-${{ github.ref }}
-  cancel-in-progress: false
+    group: gitops-${{ github.ref }}
+    cancel-in-progress: false
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+    AWS_REGION: ${{ vars.AWS_REGION }}
+    EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
 jobs:
-  deploy:
-    name: Deploy to Kubernetes
-    runs-on: ubuntu-latest
-    if: inputs.k8s_apply || inputs.run_postgres_schema_job
-    steps:
-      - name: Checkout GitOps repository
-        uses: actions/checkout@v5
+    deploy:
+        name: Deploy
+        runs-on: ubuntu-latest
+        if: inputs.kubernetes_apply
+        steps:
+            - name: Checkout GitOps repository
+              uses: actions/checkout@v5
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v6
+              with:
+                  aws-region: ${{ env.AWS_REGION }}
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
 
-      - name: Configure kubectl
-        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+            - name: Configure kubectl
+              run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
-      - name: Prepare namespace and runtime secrets
-        if: inputs.k8s_apply || inputs.run_postgres_schema_job
-        env:
-          AUTH_DATABASE_URL: ${{ secrets.AUTH_DATABASE_URL }}
-          FLAG_DATABASE_URL: ${{ secrets.FLAG_DATABASE_URL }}
-          TARGETING_DATABASE_URL: ${{ secrets.TARGETING_DATABASE_URL }}
-          MASTER_KEY: ${{ secrets.MASTER_KEY }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          AWS_SQS_URL: ${{ vars.AWS_SQS_URL }}
-          AWS_DYNAMODB_TABLE: ${{ vars.AWS_DYNAMODB_TABLE }}
-        run: |
-          required_values=(
-            AUTH_DATABASE_URL
-            FLAG_DATABASE_URL
-            TARGETING_DATABASE_URL
-            MASTER_KEY
-            REDIS_URL
-            AWS_SQS_URL
-            AWS_DYNAMODB_TABLE
-          )
-          for variable_name in "${required_values[@]}"; do
-            if [[ -z "${!variable_name}" ]]; then
-              echo "Required configuration is missing: $variable_name" >&2
-              exit 1
-            fi
-          done
+            - name: Set up Helm
+              uses: azure/setup-helm@v4
 
-          kubectl apply -f base/namespace.yaml
-          kubectl create secret generic togglemaster-secrets \
-            --namespace togglemaster \
-            --from-literal=AUTH_DATABASE_URL="$AUTH_DATABASE_URL" \
-            --from-literal=FLAG_DATABASE_URL="$FLAG_DATABASE_URL" \
-            --from-literal=TARGETING_DATABASE_URL="$TARGETING_DATABASE_URL" \
-            --from-literal=MASTER_KEY="$MASTER_KEY" \
-            --from-literal=REDIS_URL="$REDIS_URL" \
-            --from-literal=AWS_REGION="$AWS_REGION" \
-            --from-literal=AWS_SQS_URL="$AWS_SQS_URL" \
-            --from-literal=AWS_DYNAMODB_TABLE="$AWS_DYNAMODB_TABLE" \
-            --dry-run=client \
-            --output=yaml | kubectl apply -f -
+            - name: Add Helm repositories
+              run: |
+                  helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+                  helm repo add argo https://argoproj.github.io/argo-helm
+                  helm repo update
 
-      - name: Apply Kubernetes manifests
-        if: inputs.k8s_apply
-        run: kubectl apply -k .
+            - name: Check and install Metrics Server
+              run: |
+                  if helm status metrics-server --namespace kube-system >/dev/null 2>&1; then
+                    echo "Metrics Server is already installed."
+                  else
+                    helm upgrade --install metrics-server metrics-server/metrics-server \
+                      --namespace kube-system \
+                      --set 'args[0]=--kubelet-insecure-tls' \
+                      --wait \
+                      --timeout 10m
+                  fi
 
-      - name: Run Postgres Schema Job
+            - name: Check and install ArgoCD
+              run: |
+                  if helm status argocd --namespace argocd >/dev/null 2>&1; then
+                    echo "ArgoCD is already installed."
+                  else
+                    helm upgrade --install argocd argo/argo-cd \
+                      --namespace argocd \
+                      --create-namespace \
+                      --set server.service.type=LoadBalancer \
+                      --wait \
+                      --timeout 10m
+                  fi
+
+            - name: Prepare namespace and runtime secrets
+              env:
+                  AUTH_DATABASE_URL: ${{ secrets.AUTH_DATABASE_URL }}
+                  FLAG_DATABASE_URL: ${{ secrets.FLAG_DATABASE_URL }}
+                  TARGETING_DATABASE_URL: ${{ secrets.TARGETING_DATABASE_URL }}
+                  MASTER_KEY: ${{ secrets.MASTER_KEY }}
+                  REDIS_URL: ${{ secrets.REDIS_URL }}
+                  AWS_SQS_URL: ${{ vars.AWS_SQS_URL }}
+                  AWS_DYNAMODB_TABLE: ${{ vars.AWS_DYNAMODB_TABLE }}
+              run: |
+                  required_values=(
+                    AUTH_DATABASE_URL
+                    FLAG_DATABASE_URL
+                    TARGETING_DATABASE_URL
+                    MASTER_KEY
+                    REDIS_URL
+                    AWS_SQS_URL
+                    AWS_DYNAMODB_TABLE
+                  )
+                  for variable_name in "${required_values[@]}"; do
+                    if [[ -z "${!variable_name}" ]]; then
+                      echo "Required configuration is missing: $variable_name" >&2
+                      exit 1
+                    fi
+                  done
+
+                  kubectl apply -f base/namespace.yaml
+                  kubectl create secret generic togglemaster-secrets \
+                    --namespace togglemaster \
+                    --from-literal=AUTH_DATABASE_URL="$AUTH_DATABASE_URL" \
+                    --from-literal=FLAG_DATABASE_URL="$FLAG_DATABASE_URL" \
+                    --from-literal=TARGETING_DATABASE_URL="$TARGETING_DATABASE_URL" \
+                    --from-literal=MASTER_KEY="$MASTER_KEY" \
+                    --from-literal=REDIS_URL="$REDIS_URL" \
+                    --from-literal=AWS_REGION="$AWS_REGION" \
+                    --from-literal=AWS_SQS_URL="$AWS_SQS_URL" \
+                    --from-literal=AWS_DYNAMODB_TABLE="$AWS_DYNAMODB_TABLE" \
+                    --dry-run=client \
+                    --output=yaml | kubectl apply -f -
+
+            - name: Apply Kubernetes manifests
+              run: |
+                  kubectl apply -k .
+                  kubectl apply -f argocd/application.yaml
+
+    utils:
+        name: Utils
+        runs-on: ubuntu-latest
         if: inputs.run_postgres_schema_job
-        run: |
-          kubectl delete job postgres-schema-init \
-            --namespace togglemaster \
-            --ignore-not-found
-          kubectl apply -f jobs/postgres-job.yaml
-          kubectl wait \
-            --namespace togglemaster \
-            --for=condition=complete \
-            --timeout=10m \
-            job/postgres-schema-init
-          kubectl logs \
-            --namespace togglemaster \
-            job/postgres-schema-init
+        steps:
+            - name: Checkout GitOps repository
+              uses: actions/checkout@v5
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v6
+              with:
+                  aws-region: ${{ env.AWS_REGION }}
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+            - name: Configure kubectl
+              run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+
+            - name: Prepare namespace and runtime secrets
+              env:
+                  AUTH_DATABASE_URL: ${{ secrets.AUTH_DATABASE_URL }}
+                  FLAG_DATABASE_URL: ${{ secrets.FLAG_DATABASE_URL }}
+                  TARGETING_DATABASE_URL: ${{ secrets.TARGETING_DATABASE_URL }}
+                  MASTER_KEY: ${{ secrets.MASTER_KEY }}
+                  REDIS_URL: ${{ secrets.REDIS_URL }}
+                  AWS_SQS_URL: ${{ vars.AWS_SQS_URL }}
+                  AWS_DYNAMODB_TABLE: ${{ vars.AWS_DYNAMODB_TABLE }}
+              run: |
+                  required_values=(
+                    AUTH_DATABASE_URL
+                    FLAG_DATABASE_URL
+                    TARGETING_DATABASE_URL
+                    MASTER_KEY
+                    REDIS_URL
+                    AWS_SQS_URL
+                    AWS_DYNAMODB_TABLE
+                  )
+                  for variable_name in "${required_values[@]}"; do
+                    if [[ -z "${!variable_name}" ]]; then
+                      echo "Required configuration is missing: $variable_name" >&2
+                      exit 1
+                    fi
+                  done
+
+                  kubectl apply -f base/namespace.yaml
+                  kubectl create secret generic togglemaster-secrets \
+                    --namespace togglemaster \
+                    --from-literal=AUTH_DATABASE_URL="$AUTH_DATABASE_URL" \
+                    --from-literal=FLAG_DATABASE_URL="$FLAG_DATABASE_URL" \
+                    --from-literal=TARGETING_DATABASE_URL="$TARGETING_DATABASE_URL" \
+                    --from-literal=MASTER_KEY="$MASTER_KEY" \
+                    --from-literal=REDIS_URL="$REDIS_URL" \
+                    --from-literal=AWS_REGION="$AWS_REGION" \
+                    --from-literal=AWS_SQS_URL="$AWS_SQS_URL" \
+                    --from-literal=AWS_DYNAMODB_TABLE="$AWS_DYNAMODB_TABLE" \
+                    --dry-run=client \
+                    --output=yaml | kubectl apply -f -
+
+            - name: Run Postegres Schema Job
+              run: |
+                  kubectl delete job postgres-schema-init \
+                    --namespace togglemaster \
+                    --ignore-not-found
+                  kubectl apply -f jobs/postgres-job.yaml
+                  kubectl wait \
+                    --namespace togglemaster \
+                    --for=condition=complete \
+                    --timeout=10m \
+                    job/postgres-schema-init
+                  kubectl logs \
+                    --namespace togglemaster \
+                    job/postgres-schema-init

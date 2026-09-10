@@ -32,10 +32,14 @@ Os nodes do EKS precisam conseguir fazer pull dos repositórios privados ECR. A 
 
 ## Workflow manual
 
-O workflow `.github/workflows/gitops.yml` pode ser executado em **Actions > GitOps Deploy > Run workflow** com dois inputs independentes:
+O workflow `.github/workflows/gitops.yml` pode ser executado em **Actions > K8s Utils > Run workflow** com quatro inputs independentes:
 
 - `K8s Apply`: aplica a raiz Kustomize (`kubectl apply -k .`).
 - `Run Postgres Schema Job`: remove e recria `postgres-schema-init`, aguarda sua conclusão e exibe os logs.
+- `Install Metrics Server`: instala ou atualiza o chart do Metrics Server via Helm.
+- `Install ArgoCD`: instala ou atualiza o chart do Argo CD, cria o Service `LoadBalancer` e registra a Application GitOps.
+
+Os charts usam `helm upgrade --install`, portanto a mesma execução pode ser repetida com segurança. O Metrics Server é instalado com `--kubelet-insecure-tls`, necessário para clusters EKS em que o certificado apresentado pelo kubelet não é confiável pelo componente.
 
 Configure no repositório GitOps:
 
