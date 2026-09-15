@@ -17,7 +17,7 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: evaluation-service
-          image: 031488046339.dkr.ecr.us-east-1.amazonaws.com/togglemaster/evaluation:4063a190ebc9efdef6d32935e96cde407308531c
+          image: 031488046339.dkr.ecr.us-east-1.amazonaws.com/togglemaster/evaluation:f6dff8550384d425e984d313b8e5a7a13df06893
           imagePullPolicy: Always
           ports:
             - containerPort: 8004
